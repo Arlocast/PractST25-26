@@ -13,10 +13,41 @@ import sys          # sys.exit
 import re           # Analizador sintáctico
 import logging      # Para imprimir logs
 
+REQUEST_RE = re.compile(
+    r'(?P<Peticion>GET|POST)\s+'
+    r'(?P<Objeto>(?:/[A-Za-z0-9_/-]+\.html|/))\s+'
+    r'(?P<Version>HTTP/(?:1\.0|1\.1|2\.0))\r\n'
+    r'(?P<headers>(?:(?:[A-Za-z-]+):[^\r\n]*\r\n)*)'
+    r'\r\n',
+    re.MULTILINE
+)
+
+def parse_request(text: str):
+    m = REQUEST_RE.search(text)
+    if not m:
+        return None
+
+    headers_block = m.group("headers")
+    headers = {}
+    for line in headers_block.splitlines():
+        name, value = line.split(":", 1)
+        headers[name.strip().lower()] = value.strip()
+    
+    return {
+        "peticion": m.group("Peticion"),
+        "objeto": m.group("Objeto"),
+        "version": m.group("Version"),
+        ""
+        "headers": headers,
+    }
+
+# uso:
+# result = parse_request(raw_http_text)
+# print(result["headers"].get("cookie"))
 
 
 BUFSIZE = 8192 # Tamaño máximo del buffer que se puede utilizar
-TIMEOUT_CONNECTION = 33 # Timout para la conexión persistente
+TIMEOUT_CONNECTION = 33.0 # Timout para la conexión persistente
 MAX_ACCESOS = 10
 
 # Extensiones admitidas (extension, name in HTTP)
@@ -34,11 +65,26 @@ def enviar_mensaje(cs, data):
     return cs.send(data.encode())
     
 
+def comprobarRequest(datos):
+    # expresion regular
+    pass
+
+
 # Esta función recibe datos a través del socket cs. Leemos la información que nos llega. recv() devuelve un string con los datos.
 def recibir_mensaje(cs):
     datos=cs.recv(BUFSIZE)
+    # comprobarRequest(datos) comprobar si es valido o no para devolver los datos o un null
     return datos.decode()
 
+
+def crearResponse(tamaño, contenido):
+    
+    respuesta=("HTTP/1.1 200 OK\r\n"+ datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S GMT\r\n") + 
+                "server: " + )
+    return respuesta
+    
+    
+    
 
 def cerrar_conexion(cs):
     return cs.close()
@@ -92,20 +138,52 @@ def process_web_request(cs, webroot):
     """
 
     while (True):
-        rsublist, wsublist, xsublist = select.select([cs], [], [][TIMEOUT_CONNECTION])
-        for s in rsublist:
-            if s is socket.socket:
-                datos = recibir_mensaje(s)
+        
+        datos = recibir_mensaje(cs)
+        
+        result = parse_request(datos)
+        
+        if result["version"]=="HTTP/1.1":
+            
+            if result["peticion"]=="GET":
+               
+                url=result["objeto"]
+                if url=="/":
+                    
+                    ruta_absoluta=os.path.join(webroot+"index.html")
+                    if os.path.isfile(ruta_absoluta):
+                        logger.debug(ruta_absoluta)
+                        for name, value in result["headers"].items():
+                            print("{}: {}".format(name, value))
+                        file_size=os.stat(ruta_absoluta).st_size
+                        _,extension_con_punto=os.path.splitext(ruta_absoluta)
+                        extension=extension_con_punto[1:]
+                        content_type=filetypes.get(extension,"application/octet-stream")
+                        respuesta=crearResponse(file_size, content_type)
+                        print(respuesta)
 
-        for s in xsublist:
-            enviar_mensaje(s, xsublist)
-            cerrar_conexion(cs)
 
-        if xsublist:
-            pass
 
-        else:
-            cerrar_conexion(cs)
+
+"""
+process web req (cs
+    recv(cs)
+    parsear y comprobar que existen y estan bien
+    construir response
+    send (response, cs)
+    [cs] = select ([cs],[],[],[,timeout])
+    si [cs] esta vacia envio y cierro sino
+    recv(cs)
+    parsear y comprobar que existen y estan bien
+    responde
+    send (response, cs)
+        [cs] = select ([cs],[],[],[,timeout])
+    si [cs] esta vacia envio y cierro sino
+    recv(cs)
+    parsear y comprobar que existen y estan bien
+    responde
+    send (response, cs)
+"""
 
 """ Función principal del servidor"""
 def main():
