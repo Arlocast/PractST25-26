@@ -7,7 +7,7 @@ import select
 import types        # Para definir el tipo de datos data
 import argparse     # Leer parametros de ejecución
 import os            # Obtener ruta y extension
-from datetime import datetime, timedelta # Fechas de los mensajes HTTP
+from datetime import datetime,timezone, timedelta # Fechas de los mensajes HTTP
 import time         # Timeout conexión
 import sys          # sys.exit
 import re           # Analizador sintáctico
@@ -15,7 +15,7 @@ import logging      # Para imprimir logs
 
 REQUEST_RE = re.compile(
     r'(?P<Peticion>GET|POST)\s+'
-    r'(?P<Objeto>(?:/[A-Za-z0-9_/-]+\.html|/))\s+'
+    r'(?P<Objeto>(?:[A-Za-z0-9_/-]+\.(html|gif|jpg|ico)|/))\s+'
     r'(?P<Version>HTTP/(?:1\.0|1\.1|2\.0))\r\n'
     r'(?P<headers>(?:(?:[A-Za-z-]+):[^\r\n]*\r\n)*)'
     r'\r\n',
@@ -37,7 +37,6 @@ def parse_request(text: str):
         "peticion": m.group("Peticion"),
         "objeto": m.group("Objeto"),
         "version": m.group("Version"),
-        ""
         "headers": headers,
     }
 
@@ -47,12 +46,12 @@ def parse_request(text: str):
 
 
 BUFSIZE = 8192 # Tamaño máximo del buffer que se puede utilizar
-TIMEOUT_CONNECTION = 33.0 # Timout para la conexión persistente
+TIMEOUT_CONNECTION = 10.0 # Timout para la conexión persistente
 MAX_ACCESOS = 10
 
 # Extensiones admitidas (extension, name in HTTP)
 filetypes = {"gif":"image/gif", "jpg":"image/jpg", "jpeg":"image/jpeg", "png":"image/png", "htm":"text/htm", 
-             "html":"text/html", "css":"text/css", "js":"text/js"}
+             "html":"text/html", "css":"text/css", "js":"text/js","ico":"image/icon"}
 
 # Configuración de logging
 logging.basicConfig(level=logging.INFO,
@@ -62,7 +61,10 @@ logger = logging.getLogger()
 
 # Esta función envía datos (data) a través del socket cs. Devuelve el número de bytes enviados.
 def enviar_mensaje(cs, data):
-    return cs.send(data.encode())
+    if isinstance(data, str):
+        data = data.encode('utf-8')
+    cs.sendall(data)
+    return len(data)
     
 
 def comprobarRequest(datos):
@@ -79,8 +81,12 @@ def recibir_mensaje(cs):
 
 def crearResponse(tamaño, contenido):
     
-    respuesta=("HTTP/1.1 200 OK\r\n"+ datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S GMT\r\n") + 
-                "server: " + )
+    respuesta=("HTTP/1.1 200 OK\r\n"+ 
+                datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT\r\n") + 
+                "server: Apache/2.0.52\r\n" + 
+                "Connection: Keep-Alive\r\n" + 
+                "Content-Length: "+str(tamaño) + 
+                "\r\n"+"Content-Type: "+contenido+"\r\n\r\n" )
     return respuesta
     
     
@@ -137,30 +143,51 @@ def process_web_request(cs, webroot):
                 * NOTA: Si hay algún error, enviar una respuesta de error con una pequeña página HTML que informe del error.
     """
 
+    
+
     while (True):
-        
+        rsublist, wsublist, xsublist = select.select([cs],[],[],TIMEOUT_CONNECTION)
+        if not rsublist:
+            logger.info(f"Tiempo de espera ({TIMEOUT_CONNECTION}s) excedido. Cerrando conexión.")
+            break
         datos = recibir_mensaje(cs)
-        
+        if not datos:
+            logger.info("El cliente cerró la conexión.")
+            break
         result = parse_request(datos)
         
+        if result is None:
+               break
+            
         if result["version"]=="HTTP/1.1":
             
             if result["peticion"]=="GET":
                
                 url=result["objeto"]
-                if url=="/":
-                    
-                    ruta_absoluta=os.path.join(webroot+"index.html")
-                    if os.path.isfile(ruta_absoluta):
-                        logger.debug(ruta_absoluta)
-                        for name, value in result["headers"].items():
-                            print("{}: {}".format(name, value))
-                        file_size=os.stat(ruta_absoluta).st_size
-                        _,extension_con_punto=os.path.splitext(ruta_absoluta)
-                        extension=extension_con_punto[1:]
-                        content_type=filetypes.get(extension,"application/octet-stream")
-                        respuesta=crearResponse(file_size, content_type)
-                        print(respuesta)
+                if url == "/":
+                    filename = "index.html"
+                else:
+                    # Quitamos la barra del principio (ej: "/foto.jpg" -> "foto.jpg")
+                     filename = url.lstrip("/")
+                ruta_absoluta=os.path.join(webroot,filename)
+                if os.path.isfile(ruta_absoluta):
+                    for name, value in result["headers"].items():
+                        print("{}: {}".format(name, value))
+                    file_size=os.stat(ruta_absoluta).st_size
+                    _,extension_con_punto=os.path.splitext(ruta_absoluta)
+                    extension=extension_con_punto[1:]
+                    content_type=filetypes.get(extension,"application/octet-stream")
+                    respuesta=crearResponse(file_size, content_type)
+                    enviar_mensaje(cs,respuesta)
+                        
+                    with open(ruta_absoluta, "rb") as f:
+                        while True:
+                            contenido=f.read(BUFSIZE)
+                            if not contenido:
+                                break
+                            enviar_mensaje(cs,contenido)
+                
+
 
 
 
