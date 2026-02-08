@@ -46,7 +46,7 @@ def parse_request(text: str):
 
 
 BUFSIZE = 8192 # Tamaño máximo del buffer que se puede utilizar
-TIMEOUT_CONNECTION = 10.0 # Timout para la conexión persistente
+TIMEOUT_CONNECTION = 33.0 # Timout para la conexión persistente
 MAX_ACCESOS = 10
 
 # Extensiones admitidas (extension, name in HTTP)
@@ -79,15 +79,16 @@ def recibir_mensaje(cs):
     return datos.decode()
 
 
-def crearResponse(tamaño, contenido):
+def createResponse(contentLength, contentType, cookieCounter):
     
-    respuesta=("HTTP/1.1 200 OK\r\n"+ 
-                datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT\r\n") + 
+    response=("HTTP/1.1 200 OK\r\n" + 
+              datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT\r\n") + 
                 "server: Apache/2.0.52\r\n" + 
                 "Connection: Keep-Alive\r\n" + 
-                "Content-Length: "+str(tamaño) + 
-                "\r\n"+"Content-Type: "+contenido+"\r\n\r\n" )
-    return respuesta
+                "Content-Length: "+ str(contentLength) + "\r\n" +
+                "Content-Type: " + contentType + "\r\n" + 
+                "Set-Cookie: " + cookieCounter + "\r\n\r\n" )
+    return response
     
     
     
@@ -104,7 +105,18 @@ def process_cookies(headers,  cs):
         4. Si se encuentra y tiene el valor MAX_ACCESSOS se devuelve MAX_ACCESOS
         5. Si se encuentra y tiene un valor 1 <= x < MAX_ACCESOS se incrementa en 1 y se devuelve el valor
     """
-    pass
+
+    for name, value in result["headers"].items():
+        if name is "cookie_counter":
+            if value == MAX_ACCESOS:
+                return MAX_ACCESOS
+            elif value >= 1 or value < MAX_ACCESOS:
+                value+=1
+                return value
+            else:
+                pass
+        else:
+            return 1
 
 
 def process_web_request(cs, webroot):
@@ -146,12 +158,12 @@ def process_web_request(cs, webroot):
     
 
     while (True):
-        rsublist, wsublist, xsublist = select.select([cs],[],[],TIMEOUT_CONNECTION)
+        rsublist, wsublist, xsublist = select.select([cs],[],[],TIMEOUT_CONNECTION) # Se bloquea hasta que llega un socket o hasta que salta el timeout
         if not rsublist:
             logger.info(f"Tiempo de espera ({TIMEOUT_CONNECTION}s) excedido. Cerrando conexión.")
             break
         datos = recibir_mensaje(cs)
-        if not datos:
+        if not datos: # LLegan datos vacíos si el cliente cerró la conexión
             logger.info("El cliente cerró la conexión.")
             break
         result = parse_request(datos)
@@ -173,12 +185,15 @@ def process_web_request(cs, webroot):
                 if os.path.isfile(ruta_absoluta):
                     for name, value in result["headers"].items():
                         print("{}: {}".format(name, value))
+                    
+                    cookie_counter = process_cookie(headers, cs)
+                    
                     file_size=os.stat(ruta_absoluta).st_size
                     _,extension_con_punto=os.path.splitext(ruta_absoluta)
                     extension=extension_con_punto[1:]
-                    content_type=filetypes.get(extension,"application/octet-stream")
-                    respuesta=crearResponse(file_size, content_type)
-                    enviar_mensaje(cs,respuesta)
+                    content_type=filetypes.get(extension,"application/octet-stream") # Por defecto: datos binarios sin especificar
+                    response=createResponse(file_size, content_type, cookie_counter)
+                    enviar_mensaje(cs,response)
                         
                     with open(ruta_absoluta, "rb") as f:
                         while True:
