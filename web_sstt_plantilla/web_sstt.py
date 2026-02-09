@@ -80,8 +80,21 @@ def comprobarRequest(datos):
 
 # Esta función recibe datos a través del socket cs. Leemos la información que nos llega. recv() devuelve un string con los datos.
 def recibir_mensaje(cs):
-    datos=cs.recv(BUFSIZE)
-    return datos.decode('utf-8')
+    peticion=""
+    while True:
+        rsublist, wsublist, xsublist = select.select([cs],[],[],TIMEOUT_CONNECTION) # Se bloquea hasta que llega un socket o hasta que salta el timeout
+        if not rsublist:
+            logger.info("Tiempo de espera ({0}s) excedido. Cerrando conexión.".format(TIMEOUT_CONNECTION))
+            break
+        
+        datos=cs.recv(BUFSIZE)
+        if not datos: # LLegan datos vacíos si el cliente cerró la conexión
+            logger.info("El cliente cerró la conexión.")
+            break
+        peticion += datos.decode('utf-8')
+        if "\r\n\r\n" in peticion or "\n\n" in peticion:
+            break
+    return peticion
 
 
 def createResponse(contentLength, contentType, cookieCounter):
@@ -101,7 +114,7 @@ def cerrar_conexion(cs):
     return cs.close()
 
 
-def process_cookies(headers,  cs):
+def process_cookies(headers,  cs,index):
     """ Esta función procesa la cookie cookie_counter
         1. Se analizan las cabeceras en headers para buscar la cabecera Cookie
         2. Una vez encontrada una cabecera Cookie se comprueba si el valor es cookie_counter
@@ -118,7 +131,8 @@ def process_cookies(headers,  cs):
     if cookie_value == MAX_ACCESOS:
         return MAX_ACCESOS
     elif cookie_value >= 1 or cookie_value < MAX_ACCESOS:
-        cookie_value = cookie_value + 1
+        if index:
+            cookie_value = cookie_value + 1
         return cookie_value
     else:
         return 1
@@ -159,18 +173,12 @@ def process_web_request(cs, webroot):
             * Si es por timeout, se cierra el socket tras el período de persistencia.
                 * NOTA: Si hay algún error, enviar una respuesta de error con una pequeña página HTML que informe del error.
     """
-
+    
     while (True):
-        rsublist, wsublist, xsublist = select.select([cs],[],[],TIMEOUT_CONNECTION) # Se bloquea hasta que llega un socket o hasta que salta el timeout
-        if not rsublist:
-            logger.info("Tiempo de espera ({0}s) excedido. Cerrando conexión.".format(TIMEOUT_CONNECTION))
-            break
+        index=False
+       
         datos = recibir_mensaje(cs)
-        if not datos: # LLegan datos vacíos si el cliente cerró la conexión
-            logger.info("El cliente cerró la conexión.")
-            break
         
-        print(datos)
         result = parse_request(datos)
         
         if result is None:
@@ -183,6 +191,7 @@ def process_web_request(cs, webroot):
                 url=result["objeto"]
                 if url == "/":
                     filename = "index.html"
+                    index= True
                 else:
                     # Quitamos la barra del principio (ej: "/foto.jpg" -> "foto.jpg")
                      filename = url.lstrip("/")
@@ -196,7 +205,7 @@ def process_web_request(cs, webroot):
                     extension=extension_con_punto[1:]
                     content_type=filetypes.get(extension,"application/octet-stream") # Por defecto: datos binarios sin especificar
                     
-                    cookie_counter = process_cookies(result["headers"], cs)
+                    cookie_counter = process_cookies(result["headers"], cs,index)
                     if cookie_counter == MAX_ACCESOS:
                         response = ("Error 403 - Forbidden")
                         enviar_mensaje(cs,response)
@@ -211,7 +220,7 @@ def process_web_request(cs, webroot):
                             if not contenido:
                                 break
                             enviar_mensaje(cs,contenido)
-                            return
+                            
                 else:
                     response = ("Error 404 - File Not Found")
                     enviar_mensaje(cs,response)
