@@ -16,9 +16,9 @@ import logging      # Para imprimir logs
 
 
 REQUEST_RE = re.compile(
-    r'(?P<Peticion>GET|POST)\s+'
-    r'(?P<Objeto>(?:[A-Za-z0-9_/-]+\.(html|gif|jpg|ico)|/))\s+'
-    r'(?P<Version>HTTP/(?:1\.0|1\.1|2\.0))\r\n'
+    r'(?P<Peticion>[A-Z]+)\s+'
+    r'(?P<Objeto>/[^ \r\n]*)\s*'
+    r'(?P<Version>HTTP/(?:1\.0|1\.1|2\.0))?\r\n'
     r'(?P<headers>(?:(?:[A-Za-z-]+):[^\r\n]*\r\n)*)'
     r'\r\n',
     re.MULTILINE
@@ -36,10 +36,14 @@ def parse_request(text):
         name, value = line.split(":", 1)
         headers[name.strip().lower()] = value.strip()
     
+    version = m.group("Version")
+    if version == None:
+        version = "HTTP/1.1"
+    
     return {
         "peticion": m.group("Peticion"),
         "objeto": m.group("Objeto"),
-        "version": m.group("Version"),
+        "version": version,
         "headers": headers,
     }
 
@@ -86,8 +90,9 @@ def recibir_mensaje(cs):
         if not rsublist:
             logger.info("Tiempo de espera ({0}s) excedido. Cerrando conexión.".format(TIMEOUT_CONNECTION))
             break
-        
+       
         datos=cs.recv(BUFSIZE)
+    
         if not datos: # LLegan datos vacíos si el cliente cerró la conexión
             logger.info("El cliente cerró la conexión.")
             break
@@ -101,7 +106,7 @@ def createResponse(contentLength, contentType, cookieCounter):
     
     response=("HTTP/1.1 200 OK\r\n" + 
               datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S GMT\r\n") + 
-              "server: Apache/2.0.52\r\n" + 
+              "server: ToDo PONERNOMBRESERVIDOR\r\n" + 
               "Connection: Keep-Alive\r\n" + 
               "Keep-Alive: timeout=5, max=33\r\n" +
               "Content-Length: "+ str(contentLength) + "\r\n" +
@@ -109,6 +114,14 @@ def createResponse(contentLength, contentType, cookieCounter):
               "Set-Cookie: " + str(cookieCounter) + "\r\n\r\n" )
     return response
     
+def createResponseError(code,message,contentLength, contentType):           
+    cabecera = ("HTTP/1.1 " + str(code) + " " + message + "\r\n" +
+            datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S GMT\r\n") + 
+            "Server: ToDo PonerNombreServidor\r\n" + 
+            "Connection: keepAlive\r\n" + 
+            "Content-Length: "+ str(contentLength) + "\r\n" +
+            "Content-Type: " + contentType + "\r\n\r\n")
+    return cabecera
 
 def cerrar_conexion(cs):
     return cs.close()
@@ -176,11 +189,8 @@ def process_web_request(cs, webroot):
     
     while (True):
         index=False
-       
         datos = recibir_mensaje(cs)
-        
         result = parse_request(datos)
-        
         if result is None:
                break
             
@@ -199,7 +209,7 @@ def process_web_request(cs, webroot):
                 if os.path.isfile(ruta_absoluta):
                     for name, value in result["headers"].items():
                         print("{}: {}".format(name, value))                    
-
+                    
                     file_size=os.stat(ruta_absoluta).st_size
                     _,extension_con_punto=os.path.splitext(ruta_absoluta)
                     extension=extension_con_punto[1:]
@@ -213,7 +223,7 @@ def process_web_request(cs, webroot):
                     
                     response=createResponse(file_size, content_type, cookie_counter)
                     enviar_mensaje(cs,response)
-                        
+                    logger.debug(ruta_absoluta)
                     with open(ruta_absoluta, "rb") as f:
                         while True:
                             contenido=f.read(BUFSIZE)
@@ -222,12 +232,28 @@ def process_web_request(cs, webroot):
                             enviar_mensaje(cs,contenido)
                             
                 else:
-                    response = ("Error 404 - File Not Found")
-                    enviar_mensaje(cs,response)
-                    return
+                    ruta_error = os.path.join(webroot,"404.html")
+                    file_size=os.stat(ruta_error).st_size
+                    _,extension_con_punto=os.path.splitext(ruta_error)
+                    extension=extension_con_punto[1:]
+                    content_type=filetypes.get(extension,"application/octet-stream")
+                    logger.error("Archivo no encontrado: %s",ruta_absoluta)
+    
+    
+                    resp = createResponseError(404, "Not Found",file_size, content_type)
+                    enviar_mensaje(cs, resp)
+                    logger.debug(ruta_error)
+                    with open(ruta_error, "rb") as f:
+                        while True:
+                            error=f.read(BUFSIZE)
+                            if not error:
+                                break
+                            enviar_mensaje(cs,error)
+                    break
             else:
-                response = ("Error 405 - Method Not Allowed")
-                enviar_mensaje(cs,response)    
+                logger.error("Error 405 - Method Not Allowed")
+                resp=resp = createResponseError(405, "Not Allowed", webroot)
+                enviar_mensaje(cs, resp)
                 return
 
 # Probarlo.
