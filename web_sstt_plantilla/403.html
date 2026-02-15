@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Página no encontrada</title>
+    <style>
+        /* ESTILOS DEL FONDO */
+        body {
+            /* 1. Quitamos bordes blancos feos */
+            margin: 0;
+            padding: 0;
+            
+            /* 2. Hacemos que el cuerpo ocupe SIEMPRE el 100% de la altura de la pantalla */
+            height: 100vh;
+            width: 100%;
+            
+            /* 3. Configuración de la imagen de fondo */
+            background-color: #f0f0f0; /* Color por si la imagen falla */
+            background-image: url('pokemon-peluche-pikachu-gordo.jpg'); /* Imagen por defecto */
+            
+            /* LA CLAVE: 'cover' estira la imagen para cubrir todo sin deformarse */
+            background-size: cover; 
+            background-position: center;
+            background-repeat: no-repeat;
+
+            /* 4. Usamos Flexbox para centrar el texto automáticamente */
+            display: flex;
+            align-items: center;     /* Centrado vertical */
+            justify-content: center; /* Centrado horizontal */
+            
+            font-family: sans-serif;
+            overflow: hidden; /* Evita barras de desplazamiento */
+        }
+
+        /* ESTILOS DEL CUADRO DE TEXTO */
+        .content {
+            text-align: center;
+            background-color: rgba(255, 255, 255, 0.9); /* Fondo blanco semitransparente */
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2); /* Sombra elegante */
+            max-width: 400px;
+        }
+
+        h1 { margin: 0; color: #e74c3c; font-size: 3em; }
+        h2 { margin: 10px 0; color: #333; }
+        p { color: #666; margin-bottom: 20px; }
+        
+        a {
+            background-color: #3498db;
+            color: white;
+            padding: 10px 20px;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        a:hover { background-color: #2980b9; }
+    </style>
+</head>
+<body>
+
+    <div class="content">
+        <h1>403</h1>
+        <h2>Squirtle the prohibe el paso</h2>
+        <p>Lo sentimos, ha alcanzado el máximo de peticiones permitidas.</p>
+        <a href="/">Volver al Inicio</a>
+    </div>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            const gifList = [
+                "/pokemon-squirtle-prohibido-el-paso.jpg",
+            
+            ];
+
+            if (gifList.length > 0) {
+                const randomIndex = Math.floor(Math.random() * gifList.length);
+                const selectedGif = gifList[randomIndex];
+
+                // AHORA CAMBIAMOS EL ESTILO DEL BODY, NO UNA ETIQUETA IMG
+                document.body.style.backgroundImage = "url('" + selectedGif + "')";
+            }
+        });
+    </script>
+
+</body>
+</html>
