@@ -187,9 +187,35 @@ def process_web_request(cs, webroot):
                 * NOTA: Si hay algún error, enviar una respuesta de error con una pequeña página HTML que informe del error.
     """
     
+    # TODO: Hacer una funcion de responseError
+
     while (True):
         index=False
         datos = recibir_mensaje(cs)
+        
+        lineas = datos.splitlines()
+        lineaPeticion = lineas[0]
+        partesPeticion = lineaPeticion.split()
+        if len(partesPeticion) < 3:
+            ruta_error = os.path.join(webroot, "400.html")
+            file_size=os.stat(ruta_error).st_size
+            _,extension_con_punto=os.path.splitext(ruta_error)
+            extension=extension_con_punto[1:]
+            content_type=filetypes.get(extension,"application/octet-stream")
+            logger.error("Petición incorrecta: %s", lineaPeticion)
+
+            resp = createResponseError(400, "Bad Request", file_size, content_type)
+            enviar_mensaje(cs, resp)
+            logger.debug(ruta_error)
+            with open(ruta_error, "rb") as f:
+                while True:
+                    error=f.read(BUFSIZE)
+                    if not error:
+                        break
+                    enviar_mensaje(cs, error)
+            return        
+            
+
         result = parse_request(datos)
         if result is None:
                break
@@ -217,9 +243,24 @@ def process_web_request(cs, webroot):
                     
                     cookie_counter = process_cookies(result["headers"], cs,index)
                     if cookie_counter == MAX_ACCESOS:
-                        response = ("Error 403 - Forbidden")
-                        enviar_mensaje(cs,response)
-                        break
+                        ruta_error = os.path.join(webroot,"403.html")
+                        file_size=os.stat(ruta_error).st_size
+                        _,extension_con_punto=os.path.splitext(ruta_error)
+                        extension=extension_con_punto[1:]
+                        content_type=filetypes.get(extension,"application/octet-stream")
+                        logger.error("Archivo no encontrado: %s",ruta_absoluta)
+        
+        
+                        resp = createResponseError(403, "Forbidden",file_size, content_type)
+                        enviar_mensaje(cs, resp)
+                        logger.debug(ruta_error)
+                        with open(ruta_error, "rb") as f:
+                            while True:
+                                error=f.read(BUFSIZE)
+                                if not error:
+                                    break
+                                enviar_mensaje(cs,error)
+                        return
                     
                     response=createResponse(file_size, content_type, cookie_counter)
                     enviar_mensaje(cs,response)
@@ -249,11 +290,24 @@ def process_web_request(cs, webroot):
                             if not error:
                                 break
                             enviar_mensaje(cs,error)
-                    break
+                    return
             else:
-                logger.error("Error 405 - Method Not Allowed")
-                resp=resp = createResponseError(405, "Not Allowed", webroot)
+                ruta_error = os.path.join(webroot, "405.html")
+                file_size=os.stat(ruta_error).st_size
+                _,extension_con_punto=os.path.splitext(ruta_error)
+                extension=extension_con_punto[1:]
+                content_type=filetypes.get(extension,"application/octet-stream")
+                logger.error("Método no permitido: %s", result["peticion"])
+
+                resp = createResponseError(405, "Not Allowed", file_size, content_type)
                 enviar_mensaje(cs, resp)
+                logger.debug(ruta_error)
+                with open(ruta_error, "rb") as f:
+                    while True:
+                        error=f.read(BUFSIZE)
+                        if not error:
+                            break
+                        enviar_mensaje(cs, error)
                 return
 
 # Probarlo.
