@@ -19,10 +19,12 @@ REQUEST_RE = re.compile(
     r'(?P<Peticion>[A-Z]+)\s+'
     r'(?P<Objeto>/[^ \r\n]*)\s*'
     r'(?P<Version>HTTP/(?:1\.0|1\.1|2\.0))?\r\n'
-    r'(?P<headers>(?:(?:[A-Za-z-]+):[^\r\n]*\r\n)*)'
+    r'(?P<Headers>(?:(?:[A-Za-z-]+):[^\r\n]*\r\n)*)'
     r'\r\n',
     re.MULTILINE
 )
+
+EMAIL_RE = re.compile(r'^[a-zA-Z0-9._%+-]+%40[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
 
 
 def parse_request(text):
@@ -30,7 +32,7 @@ def parse_request(text):
     if not m:
         return None
 
-    headers_block = m.group("headers")
+    headers_block = m.group("Headers")
     headers = {}
     for line in headers_block.splitlines():
         name, value = line.split(":", 1)
@@ -50,6 +52,12 @@ def parse_request(text):
 # uso:
 # result = parse_request(raw_http_text)
 # print(result["headers"].get("cookie"))
+
+def parse_email(text):
+    m = EMAIL_RE.search(text)
+    if not m:
+        return None
+    return m
 
 
 BUFSIZE = 8192 # Tamaño máximo del buffer que se puede utilizar
@@ -105,27 +113,40 @@ def recibir_mensaje(cs):
 def createResponse(contentLength, contentType, cookieCounter):
     
     response=("HTTP/1.1 200 OK\r\n" + 
-              datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S GMT\r\n") + 
+              "Date: {}\r\n" + 
               "server: ToDo PONERNOMBRESERVIDOR\r\n" + 
               "Connection: Keep-Alive\r\n" + 
               "Keep-Alive: timeout=5, max=33\r\n" +
-              "Content-Length: "+ str(contentLength) + "\r\n" +
-              "Content-Type: " + contentType + "\r\n" + 
-              "Set-Cookie: " + str(cookieCounter) + "\r\n\r\n" )
+              "Content-Length: {}\r\n" +
+              "Content-Type: {}\r\n" + 
+              "Set-Cookie: {}\r\n\r\n" 
+              ).format(
+                  datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S GMT"),
+                  contentLength,
+                  contentType,
+                  cookieCounter
+              )
     return response
     
-def createResponseError(code,message,contentLength, contentType):           
-    cabecera = ("HTTP/1.1 " + str(code) + " " + message + "\r\n" +
-            datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S GMT\r\n") + 
-            "Server: ToDo PonerNombreServidor\r\n" + 
-            "Connection: keepAlive\r\n" + 
-            "Content-Length: "+ str(contentLength) + "\r\n" +
-            "Content-Type: " + contentType + "\r\n\r\n")
+def createResponseError(code, message, contentLength, contentType):
+    cabecera = (
+        "HTTP/1.1 {} {}\r\n"
+        "Date: {}\r\n"
+        "Server: ToDo PonerNombreServidor\r\n"
+        "Connection: keepAlive\r\n"
+        "Content-Length: {}\r\n"
+        "Content-Type: {}\r\n\r\n"
+    ).format(
+        code,
+        message,
+        datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S GMT"),
+        contentLength,
+        contentType
+    )
     return cabecera
 
 def cerrar_conexion(cs):
     return cs.close()
-
 
 def process_cookies(headers,  cs,index):
     """ Esta función procesa la cookie cookie_counter
@@ -192,7 +213,8 @@ def process_web_request(cs, webroot):
     while (True):
         index=False
         datos = recibir_mensaje(cs)
-        
+        if not datos:
+            break
         lineas = datos.splitlines()
         lineaPeticion = lineas[0]
         partesPeticion = lineaPeticion.split()
@@ -219,7 +241,7 @@ def process_web_request(cs, webroot):
         result = parse_request(datos)
         if result is None:
                break
-            
+        
         if result["version"]=="HTTP/1.1":
             
             if result["peticion"]=="GET" or result["peticion"]=="POST":
@@ -229,9 +251,20 @@ def process_web_request(cs, webroot):
                     filename = "index.html"
                     index= True
                 else:
-                    # Quitamos la barra del principio (ej: "/foto.jpg" -> "foto.jpg")
-                     filename = url.lstrip("/")
+                     filename = url.lstrip("/") # Quitamos la barra del principio (ej: "/foto.jpg" -> "foto.jpg")
+                
+                # Tratamiento correo
+                if filename[0] == "?":
+                    correo = str(filename.replace("?email=", "", 1))
+                    correo = parse_email(correo)
+                    if correo == None:
+                        filename = "406.html"
+                    else:
+                        filename = "200.html"
+
+
                 ruta_absoluta=os.path.join(webroot,filename)
+                logger.info(ruta_absoluta)
                 if os.path.isfile(ruta_absoluta):
                     for name, value in result["headers"].items():
                         print("{}: {}".format(name, value))                    
@@ -261,7 +294,6 @@ def process_web_request(cs, webroot):
                                     break
                                 enviar_mensaje(cs,error)
                         return
-                    
                     response=createResponse(file_size, content_type, cookie_counter)
                     enviar_mensaje(cs,response)
                     logger.debug(ruta_absoluta)
