@@ -24,7 +24,25 @@ REQUEST_RE = re.compile(
     re.MULTILINE
 )
 
+
 EMAIL_RE = re.compile(r'^[a-zA-Z0-9._%+-]+%40[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+
+
+BUFSIZE = 8192 # Tamaño máximo del buffer que se puede utilizar
+TIMEOUT_CONNECTION = 33.0 # Timout para la conexión persistente
+MAX_ACCESOS = 10
+
+
+# Extensiones admitidas (extension, name in HTTP)
+filetypes = {"gif":"image/gif", "jpg":"image/jpg", "jpeg":"image/jpeg", "png":"image/png", "htm":"text/htm", 
+             "html":"text/html", "css":"text/css", "js":"text/js","ico":"image/icon"}
+
+
+# Configuración de logging
+logging.basicConfig(level=logging.INFO,
+                    format='[%(asctime)s.%(msecs)03d] [%(levelname)-7s] %(message)s',
+                    datefmt='%Y-%m-%d %H:%M:%S')
+logger = logging.getLogger()
 
 
 def parse_request(text):
@@ -49,9 +67,6 @@ def parse_request(text):
         "headers": headers,
     }
 
-# uso:
-# result = parse_request(raw_http_text)
-# print(result["headers"].get("cookie"))
 
 def parse_email(text):
     m = EMAIL_RE.search(text)
@@ -60,80 +75,60 @@ def parse_email(text):
     return m
 
 
-BUFSIZE = 8192 # Tamaño máximo del buffer que se puede utilizar
-TIMEOUT_CONNECTION = 33.0 # Timout para la conexión persistente
-MAX_ACCESOS = 10
-
-
-# Extensiones admitidas (extension, name in HTTP)
-filetypes = {"gif":"image/gif", "jpg":"image/jpg", "jpeg":"image/jpeg", "png":"image/png", "htm":"text/htm", 
-             "html":"text/html", "css":"text/css", "js":"text/js","ico":"image/icon"}
-
-
-# Configuración de logging
-logging.basicConfig(level=logging.INFO,
-                    format='[%(asctime)s.%(msecs)03d] [%(levelname)-7s] %(message)s',
-                    datefmt='%Y-%m-%d %H:%M:%S')
-logger = logging.getLogger()
-
-
 # Esta función envía datos (data) a través del socket cs. Devuelve el número de bytes enviados.
 def enviar_mensaje(cs, data):
     if isinstance(data, str):
         data = data.encode('utf-8')
     cs.sendall(data)
     return len(data)
-    
-
-def comprobarRequest(datos):
-    # expresion regular
-    pass
 
 
 # Esta función recibe datos a través del socket cs. Leemos la información que nos llega. recv() devuelve un string con los datos.
 def recibir_mensaje(cs):
-    peticion=""
+    peticion = ""
     while True:
         rsublist, wsublist, xsublist = select.select([cs],[],[],TIMEOUT_CONNECTION) # Se bloquea hasta que llega un socket o hasta que salta el timeout
+
         if not rsublist:
             logger.info("Tiempo de espera ({0}s) excedido. Cerrando conexión.".format(TIMEOUT_CONNECTION))
             break
-       
         datos=cs.recv(BUFSIZE)
-    
+
         if not datos: # LLegan datos vacíos si el cliente cerró la conexión
             logger.info("El cliente cerró la conexión.")
             break
         peticion += datos.decode('utf-8')
+
         if "\r\n\r\n" in peticion or "\n\n" in peticion:
             break
     return peticion
 
 
 def createResponse(contentLength, contentType, cookieCounter):
-    
-    response=("HTTP/1.1 200 OK\r\n" + 
-              "Date: {}\r\n" + 
-              "server: ToDo PONERNOMBRESERVIDOR\r\n" + 
-              "Connection: Keep-Alive\r\n" + 
-              "Keep-Alive: timeout=5, max=33\r\n" +
-              "Content-Length: {}\r\n" +
-              "Content-Type: {}\r\n" + 
-              "Set-Cookie: {}\r\n\r\n" 
-              ).format(
-                  datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S GMT"),
-                  contentLength,
-                  contentType,
-                  cookieCounter
-              )
+    response = (
+        "HTTP/1.1 200 OK\r\n" + 
+        "Date: {}\r\n" + 
+        "Server: pistoladeagua9536.es\r\n" + 
+        "Connection: Keep-Alive\r\n" + 
+        "Keep-Alive: timeout=5, max=33\r\n" +
+        "Content-Length: {}\r\n" +
+        "Content-Type: {}\r\n" + 
+        "Set-Cookie: {}\r\n\r\n" 
+    ).format(
+        datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S GMT"),
+        contentLength,
+        contentType,
+        cookieCounter
+    )
     return response
     
+
 def createResponseError(code, message, contentLength, contentType):
     cabecera = (
         "HTTP/1.1 {} {}\r\n"
         "Date: {}\r\n"
-        "Server: ToDo PonerNombreServidor\r\n"
-        "Connection: keepAlive\r\n"
+        "Server: pistoladeagua9536.es\r\n"
+        "Connection: Closed\r\n"
         "Content-Length: {}\r\n"
         "Content-Type: {}\r\n\r\n"
     ).format(
@@ -145,10 +140,34 @@ def createResponseError(code, message, contentLength, contentType):
     )
     return cabecera
 
+
+def crearError(webroot, error, cs):
+    ruta_error = os.path.join(webroot, error + ".html")
+    file_size=os.stat(ruta_error).st_size
+    _,extension_con_punto=os.path.splitext(ruta_error)
+    extension=extension_con_punto[1:]
+    content_type=filetypes.get(extension,"application/octet-stream")
+
+    resp = createResponseError(error, "Bad Request", file_size, content_type)
+    enviar_mensaje(cs, resp)
+    
+    return ruta_error
+
+def enviarDatos(ruta, cs):
+    with open(ruta, "rb") as f:
+        while True:
+            error=f.read(BUFSIZE)
+            if not error:
+                break
+            enviar_mensaje(cs, error)
+    return
+
+
 def cerrar_conexion(cs):
     return cs.close()
 
-def process_cookies(headers,  cs,index):
+
+def process_cookies(headers, index):
     """ Esta función procesa la cookie cookie_counter
         1. Se analizan las cabeceras en headers para buscar la cabecera Cookie
         2. Una vez encontrada una cabecera Cookie se comprueba si el valor es cookie_counter
@@ -156,8 +175,6 @@ def process_cookies(headers,  cs,index):
         4. Si se encuentra y tiene el valor MAX_ACCESSOS se devuelve MAX_ACCESOS
         5. Si se encuentra y tiene un valor 1 <= x < MAX_ACCESOS se incrementa en 1 y se devuelve el valor
     """
-# Modificar función para que reciba el mensaje entero y que solo sume si es /
-
     cookie_value = headers.get("cookie")
     if cookie_value == None: 
         return 1
@@ -207,49 +224,32 @@ def process_web_request(cs, webroot):
             * Si es por timeout, se cierra el socket tras el período de persistencia.
                 * NOTA: Si hay algún error, enviar una respuesta de error con una pequeña página HTML que informe del error.
     """
-    
-    # TODO: Hacer una funcion de responseError
-
     while (True):
-        index=False
+        index = False # Para aumentar las cookies solo con el index
         datos = recibir_mensaje(cs)
+        logger.debug(datos)
         if not datos:
             break
+
         lineas = datos.splitlines()
         lineaPeticion = lineas[0]
         partesPeticion = lineaPeticion.split()
-        if len(partesPeticion) < 3:
-            ruta_error = os.path.join(webroot, "400.html")
-            file_size=os.stat(ruta_error).st_size
-            _,extension_con_punto=os.path.splitext(ruta_error)
-            extension=extension_con_punto[1:]
-            content_type=filetypes.get(extension,"application/octet-stream")
-            logger.error("Petición incorrecta: %s", lineaPeticion)
 
-            resp = createResponseError(400, "Bad Request", file_size, content_type)
-            enviar_mensaje(cs, resp)
-            logger.debug(ruta_error)
-            with open(ruta_error, "rb") as f:
-                while True:
-                    error=f.read(BUFSIZE)
-                    if not error:
-                        break
-                    enviar_mensaje(cs, error)
-            return        
-            
-
+        if len(partesPeticion) < 3: # 400
+            ruta_error = crearError(webroot, "400", cs)
+            enviarDatos(ruta_error, cs)
+            return 
+        
         result = parse_request(datos)
         if result is None:
                break
         
-        if result["version"]=="HTTP/1.1":
-            
+        if result["version"] == "HTTP/1.1":
             if result["peticion"]=="GET" or result["peticion"]=="POST":
-               
-                url=result["objeto"]
+                url = result["objeto"]
                 if url == "/":
                     filename = "index.html"
-                    index= True
+                    index = True
                 else:
                      filename = url.lstrip("/") # Quitamos la barra del principio (ej: "/foto.jpg" -> "foto.jpg")
                 
@@ -263,108 +263,36 @@ def process_web_request(cs, webroot):
                         filename = "200.html"
 
 
-                ruta_absoluta=os.path.join(webroot,filename)
-                logger.info(ruta_absoluta)
+                ruta_absoluta=os.path.join(webroot,filename) # Cálculo ruta absoluta
+                
                 if os.path.isfile(ruta_absoluta):
                     for name, value in result["headers"].items():
                         print("{}: {}".format(name, value))                    
-                    
+    
                     file_size=os.stat(ruta_absoluta).st_size
                     _,extension_con_punto=os.path.splitext(ruta_absoluta)
                     extension=extension_con_punto[1:]
-                    content_type=filetypes.get(extension,"application/octet-stream") # Por defecto: datos binarios sin especificar
-                    
-                    cookie_counter = process_cookies(result["headers"], cs,index)
-                    if cookie_counter == MAX_ACCESOS:
-                        ruta_error = os.path.join(webroot,"403.html")
-                        file_size=os.stat(ruta_error).st_size
-                        _,extension_con_punto=os.path.splitext(ruta_error)
-                        extension=extension_con_punto[1:]
-                        content_type=filetypes.get(extension,"application/octet-stream")
-                        logger.error("Archivo no encontrado: %s",ruta_absoluta)
-        
-        
-                        resp = createResponseError(403, "Forbidden",file_size, content_type)
-                        enviar_mensaje(cs, resp)
-                        logger.debug(ruta_error)
-                        with open(ruta_error, "rb") as f:
-                            while True:
-                                error=f.read(BUFSIZE)
-                                if not error:
-                                    break
-                                enviar_mensaje(cs,error)
-                        return
-                    response=createResponse(file_size, content_type, cookie_counter)
-                    enviar_mensaje(cs,response)
-                    logger.debug(ruta_absoluta)
-                    with open(ruta_absoluta, "rb") as f:
-                        while True:
-                            contenido=f.read(BUFSIZE)
-                            if not contenido:
-                                break
-                            enviar_mensaje(cs,contenido)
-                            
-                else:
-                    ruta_error = os.path.join(webroot,"404.html")
-                    file_size=os.stat(ruta_error).st_size
-                    _,extension_con_punto=os.path.splitext(ruta_error)
-                    extension=extension_con_punto[1:]
                     content_type=filetypes.get(extension,"application/octet-stream")
-                    logger.error("Archivo no encontrado: %s",ruta_absoluta)
-    
-    
-                    resp = createResponseError(404, "Not Found",file_size, content_type)
-                    enviar_mensaje(cs, resp)
-                    logger.debug(ruta_error)
-                    with open(ruta_error, "rb") as f:
-                        while True:
-                            error=f.read(BUFSIZE)
-                            if not error:
-                                break
-                            enviar_mensaje(cs,error)
-                    return
-            else:
-                ruta_error = os.path.join(webroot, "405.html")
-                file_size=os.stat(ruta_error).st_size
-                _,extension_con_punto=os.path.splitext(ruta_error)
-                extension=extension_con_punto[1:]
-                content_type=filetypes.get(extension,"application/octet-stream")
-                logger.error("Método no permitido: %s", result["peticion"])
+                    
+                    cookie_counter = process_cookies(result["headers"], index)
 
-                resp = createResponseError(405, "Not Allowed", file_size, content_type)
-                enviar_mensaje(cs, resp)
-                logger.debug(ruta_error)
-                with open(ruta_error, "rb") as f:
-                    while True:
-                        error=f.read(BUFSIZE)
-                        if not error:
-                            break
-                        enviar_mensaje(cs, error)
-                return
+                    if cookie_counter == MAX_ACCESOS: # 403
+                        ruta_error = crearError(webroot, "403", cs)
+                        enviarDatos(ruta_error, cs)
+                        return 
+                    
+                    response=createResponse(file_size, content_type, cookie_counter) # 200
+                    enviar_mensaje(cs,response)
+                    enviarDatos(ruta_absoluta, cs)    
 
-# Probarlo.
-# Crear los html de error
-# Crear la funcion error que le pasas code
-
-"""
-process web req (cs
-    recv(cs)
-    parsear y comprobar que existen y estan bien
-    construir response
-    send (response, cs)
-    [cs] = select ([cs],[],[],[,timeout])
-    si [cs] esta vacia envio y cierro sino
-    recv(cs)
-    parsear y comprobar que existen y estan bien
-    responde
-    send (response, cs)
-        [cs] = select ([cs],[],[],[,timeout])
-    si [cs] esta vacia envio y cierro sino
-    recv(cs)
-    parsear y comprobar que existen y estan bien
-    responde
-    send (response, cs)
-"""
+                else: # 404
+                    ruta_error = crearError(webroot, "404", cs)
+                    enviarDatos(ruta_error, cs)
+                    return 
+            else: # 405
+                ruta_error = crearError(webroot, "405", cs)
+                enviarDatos(ruta_error, cs)
+                return 
 
 
 """ Función principal del servidor"""
