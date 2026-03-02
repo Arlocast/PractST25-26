@@ -105,6 +105,7 @@ def recibir_mensaje(cs):
 
 
 def createResponse(contentLength, contentType, cookieCounter):
+    max_age=30
     response = (
         "HTTP/1.1 200 OK\r\n" + 
         "Date: {}\r\n" + 
@@ -113,12 +114,13 @@ def createResponse(contentLength, contentType, cookieCounter):
         "Keep-Alive: timeout=5, max=33\r\n" +
         "Content-Length: {}\r\n" +
         "Content-Type: {}\r\n" + 
-        "Set-Cookie: {}\r\n\r\n" 
+        "Set-Cookie: {}; Max-Age={}\r\n\r\n"
     ).format(
         datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S GMT"),
         contentLength,
         contentType,
-        cookieCounter
+        cookieCounter,
+        max_age
     )
     return response
     
