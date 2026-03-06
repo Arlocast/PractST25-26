@@ -111,7 +111,7 @@ def createResponse(contentLength, contentType, cookieCounter):
         "Date: {}\r\n" + 
         "Server: pistoladeagua9536.es\r\n" + 
         "Connection: Keep-Alive\r\n" + 
-        "Keep-Alive: timeout="+TIMEOUT_CONNECTION+", max=33\r\n" +
+        "Keep-Alive: timeout="+str(TIMEOUT_CONNECTION)+", max=33\r\n" +
         "Content-Length: {}\r\n" +
         "Content-Type: {}\r\n" + 
         "Set-Cookie: {}; Max-Age={}\r\n\r\n"
