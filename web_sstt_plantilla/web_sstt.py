@@ -111,7 +111,7 @@ def createResponse(contentLength, contentType, cookieCounter):
         "Date: {}\r\n" + 
         "Server: pistoladeagua9536.es\r\n" + 
         "Connection: Keep-Alive\r\n" + 
-        "Keep-Alive: timeout=5, max=33\r\n" +
+        "Keep-Alive: timeout="+TIMEOUT_CONNECTION+", max=33\r\n" +
         "Content-Length: {}\r\n" +
         "Content-Type: {}\r\n" + 
         "Set-Cookie: {}; Max-Age={}\r\n\r\n"
@@ -150,7 +150,16 @@ def crearError(webroot, error, cs):
     extension=extension_con_punto[1:]
     content_type=filetypes.get(extension,"application/octet-stream")
 
-    resp = createResponseError(error, "Bad Request", file_size, content_type)
+    if error=="400":
+        resp = createResponseError(error, "Bad Request", file_size, content_type)
+    if error =="403":
+        resp = createResponseError(error, "Forbidden", file_size, content_type)
+    if error =="404":
+        resp = createResponseError(error, "Object Not Found", file_size, content_type)
+    if error =="405":
+        resp = createResponseError(error, "Method Not Allowed", file_size, content_type)
+
+    
     enviar_mensaje(cs, resp)
     
     return ruta_error
