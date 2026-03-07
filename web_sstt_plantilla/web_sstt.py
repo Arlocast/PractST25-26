@@ -29,7 +29,7 @@ EMAIL_RE = re.compile(r'^[a-zA-Z0-9._%+-]+%40[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
 
 
 BUFSIZE = 8192 # Tamaño máximo del buffer que se puede utilizar
-TIMEOUT_CONNECTION = 33.0 # Timout para la conexión persistente
+TIMEOUT_CONNECTION = 100 # Timout para la conexión persistente
 MAX_ACCESOS = 10
 
 
