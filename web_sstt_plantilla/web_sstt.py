@@ -29,7 +29,7 @@ EMAIL_RE = re.compile(r'^[a-zA-Z0-9._%+-]+%40[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
 
 
 BUFSIZE = 8192 # Tamaño máximo del buffer que se puede utilizar
-TIMEOUT_CONNECTION = 100 # Timout para la conexión persistente
+TIMEOUT_CONNECTION = 33 # Timout para la conexión persistente
 MAX_ACCESOS = 10
 
 
@@ -111,7 +111,7 @@ def createResponse(contentLength, contentType, cookieCounter):
         "Date: {}\r\n" + 
         "Server: pistoladeagua9536.es\r\n" + 
         "Connection: Keep-Alive\r\n" + 
-        "Keep-Alive: timeout="+str(TIMEOUT_CONNECTION)+", max=33\r\n" +
+        "Keep-Alive: timeout="+str(TIMEOUT_CONNECTION)+", max=100\r\n" +
         "Content-Length: {}\r\n" +
         "Content-Type: {}\r\n" + 
         "Set-Cookie: {}; Max-Age={}\r\n\r\n"
